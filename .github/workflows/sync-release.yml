@@ -84,7 +84,7 @@ jobs:
           curl -X POST \
             -H "Authorization: Bearer $GH_PAT" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/ShiaBox/OlivOS-Docker/actions/workflows/docker-publish.yml/dispatches" \
+            "https://api.github.com/repos/DiceZone/OlivOS-Docker/actions/workflows/docker-publish.yml/dispatches" \
             -d '{
               "ref": "main"
             }'
