@@ -19,7 +19,7 @@ OlivOS镜像会随上游版本发布自动更新，支持稳定版和预发布�
 ## 一键部署脚本（推荐新手）
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/DiceZone/OlivOS-Docker/main/olivos-onekey.sh)
+bash <(curl -sL olivos.dice.zone)
 ```
 
 交互式引导，按提示选择版本渠道、登录方式和 QQ 号即可。
