@@ -1,4 +1,4 @@
-FROM python:3.10.15-slim
+FROM python:3.11-slim
 
 # 设置中国时区
 ENV TZ=Asia/Shanghai
@@ -13,10 +13,10 @@ WORKDIR /app/OlivOS
 RUN git clone https://github.com/OlivOS-Team/OlivOS.git . && \
     # 删除自带的account.json
     rm -f conf/account.json && \
-    # 新版 OlivOS 使用 pyproject.toml 管理依赖，不再需要 requirements*.txt
+    # 安装依赖
     pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
         --trusted-host pypi.tuna.tsinghua.edu.cn \
-        .[extend]
+        .
 
 # 下载核心插件
 RUN mkdir -p /app/OlivOS/plugin/app && \
@@ -28,10 +28,12 @@ RUN mkdir -p /app/OlivOS/plugin/app && \
     https://github.com/OlivOS-Team/ChanceCustom/releases/latest/download/ChanceCustom.opk \
     https://github.com/OlivOS-Team/OlivaDiceOdyssey/releases/latest/download/OlivaDiceOdyssey.opk
 
-# 下载 NapCat配置文件
+# 下载 NapCat 和 LLBot 配置文件模板
 RUN mkdir -p /app/napcat/config && \
-    wget -q -O /app/napcat/config/config-example.json \
-    https://raw.githubusercontent.com/DiceZone/OlivOS-Docker/refs/heads/main/NapCat/config-example.json
+    wget -q -O /app/napcat/config/napcat-config-example.json \
+    https://raw.githubusercontent.com/DiceZone/OlivOS-Docker/refs/heads/main/NapCat/config-example.json && \
+    wget -q -O /app/napcat/config/llbot-config-example.json \
+    https://raw.githubusercontent.com/DiceZone/OlivOS-Docker/refs/heads/main/LLBot/config-example.json
 
 # 创建备份目录
 RUN cp -r /app /opt/backup-app
@@ -83,6 +85,15 @@ fi\n\
 if [ ! -f "${CONF_FILE}" ]; then\n\
     echo "生成全新账户配置......"\n\
     UIN="${LOGIN_UIN:-123456}"\n\
+    \n\
+    if [ "${MODE:-}" = "llbot" ]; then\n\
+        SDK_HOST="http://llbot"\n\
+        SDK_PORT=5700\n\
+    else\n\
+        SDK_HOST="http://napcat"\n\
+        SDK_PORT=5700\n\
+    fi\n\
+    \n\
     cat <<EOF > "${CONF_FILE}"\n\
 {\n\
     "account": [\n\
@@ -95,8 +106,8 @@ if [ ! -f "${CONF_FILE}" ]; then\n\
             "server": {\n\
                 "auto": false,\n\
                 "type": "port",\n\
-                "host": "http://napcat",\n\
-                "port": 5700,\n\
+                "host": "${SDK_HOST}",\n\
+                "port": ${SDK_PORT},\n\
                 "access_token": "7777777"\n\
             },\n\
             "extends": {},\n\
@@ -106,14 +117,27 @@ if [ ! -f "${CONF_FILE}" ]; then\n\
 }\n\
 EOF\n\
     \n\
-    # NapCat配置文件不存在时从备份复制\n\
-    NAPCAT_CONF="/app/napcat/config/onebot11_${UIN}.json"\n\
-    if [ ! -f "${NAPCAT_CONF}" ]; then\n\
-        mkdir -p /app/napcat/config\n\
-        cp "/opt/backup-app/napcat/config/config-example.json" "${NAPCAT_CONF}"\n\
-        echo "已生成 NapCat 配置文件：${NAPCAT_CONF}"\n\
+    # 根据 MODE 生成对应的登录端配置文件\n\
+    if [ "${MODE:-}" = "llbot" ]; then\n\
+        # LLBot 模式：生成 config_${UIN}.json（HTTP Server + HTTP Client）\n\
+        LLBOT_CONF="/app/napcat/config/config_${UIN}.json"\n\
+        if [ ! -f "${LLBOT_CONF}" ]; then\n\
+            mkdir -p /app/napcat/config\n\
+            cp "/opt/backup-app/napcat/config/llbot-config-example.json" "${LLBOT_CONF}"\n\
+            echo "已生成 LLBot 配置文件：${LLBOT_CONF}"\n\
+        else\n\
+            echo "检测到已有 LLBot 配置文件，保留用户修改：${LLBOT_CONF}"\n\
+        fi\n\
     else\n\
-        echo "检测到已有 NapCat 配置文件，保留用户修改：${NAPCAT_CONF}"\n\
+        # NapCat 模式（默认）：生成 onebot11_${UIN}.json\n\
+        NAPCAT_CONF="/app/napcat/config/onebot11_${UIN}.json"\n\
+        if [ ! -f "${NAPCAT_CONF}" ]; then\n\
+            mkdir -p /app/napcat/config\n\
+            cp "/opt/backup-app/napcat/config/napcat-config-example.json" "${NAPCAT_CONF}"\n\
+            echo "已生成 NapCat 配置文件：${NAPCAT_CONF}"\n\
+        else\n\
+            echo "检测到已有 NapCat 配置文件，保留用户修改：${NAPCAT_CONF}"\n\
+        fi\n\
     fi\n\
 fi\n\
 \n\
