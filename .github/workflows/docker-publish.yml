@@ -12,8 +12,8 @@ on:
           - stable
           - pre
       upstream_tag:
-        description: '上游版本标签（如 v0.11.81）'
-        required: true
+        description: '上游版本标签（留空则自动从仓库文件读取）'
+        required: false
         type: string
   repository_dispatch:
     types: [build]
