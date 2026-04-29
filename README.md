@@ -76,16 +76,6 @@ LLBot 使用 **HTTP Server + HTTP Client** 模式对接 OlivOS：
 - HTTP Server 监听 3000 端口，接收 OlivOS 的 API 请求
 - HTTP Client 上报事件到 `http://olivos-app:55001/OlivOSMsgApi/qq/onebot/default`
 
-### 额外 Python 依赖
-
-在 `.env` 文件中添加 `PY_PACKAGES` 变量，多个包名用空格分隔：
-
-```
-PY_PACKAGES=requests aiohttp beautifulsoup4
-```
-
-容器启动时会使用清华源自动 pip 安装这些包。
-
 ### 运行服务
 1. 启动所有服务
 ```

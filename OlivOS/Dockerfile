@@ -8,16 +8,15 @@ RUN apt-get update && \
     echo $TZ > /etc/timezone && \
     rm -rf /var/lib/apt/lists/*
 
-# 配置清华源为默认 pip 源
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
-
 # 初始化应用目录
 WORKDIR /app/OlivOS
 RUN git clone https://github.com/OlivOS-Team/OlivOS.git . && \
     # 删除自带的account.json
     rm -f conf/account.json && \
-    pip install --no-cache-dir -r requirements310.txt
+    # 新版 OlivOS 使用 pyproject.toml 管理依赖，不再需要 requirements*.txt
+    pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
+        --trusted-host pypi.tuna.tsinghua.edu.cn \
+        .[extend]
 
 # 下载核心插件
 RUN mkdir -p /app/OlivOS/plugin/app && \
@@ -44,7 +43,7 @@ if [ ! -f "/app/OlivOS/main.py" ]; then\n\
     echo "从备份文件修复主程序目录..."\n\
     cp -af /opt/backup-app/OlivOS/ /app/\n\
 else\n\
-    for file in main.py requirements310.txt; do\n\
+    for file in main.py; do\n\
         if [ ! -f "/app/OlivOS/${file}" ]; then\n\
             cp -af /opt/backup-app/OlivOS/* /app/OlivOS/\n\
         fi\n\
@@ -118,10 +117,16 @@ EOF\n\
     fi\n\
 fi\n\
 \n\
-# Python 依赖包安装（用户通过 PY_PACKAGES 环境变量指定）\n\
-if [ -n "${PY_PACKAGES:-}" ]; then\n\
-    echo "检测到 PY_PACKAGES 环境变量，正在安装额外 Python 包：${PY_PACKAGES}"\n\
-    pip install --no-cache-dir ${PY_PACKAGES} || echo "警告：部分 Python 包安装失败，请检查包名称是否正确"\n\
+# 自动安装所有 requirements*.txt\n\
+REQUIREMENTS_FILES=$(find /app/OlivOS -maxdepth 5 -name "requirements*.txt" 2>/dev/null)\n\
+if [ -n "${REQUIREMENTS_FILES}" ]; then\n\
+    echo "检测到以下 requirements 文件，开始安装依赖..."\n\
+    for req_file in ${REQUIREMENTS_FILES}; do\n\
+        echo "  安装: ${req_file}"\n\
+        pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \\\n\
+            --trusted-host pypi.tuna.tsinghua.edu.cn \\\n\
+            -r "${req_file}" || echo "    警告：${req_file} 部分依赖安装失败"\n\
+    done\n\
 fi\n\
 \n\
 cd /app/OlivOS\n\

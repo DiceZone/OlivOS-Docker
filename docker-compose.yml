@@ -2,15 +2,12 @@ services:
   olivos-app:
     image: shiaworkshop/olivos:latest
     container_name: olivos-main
-    stdin_open: true
-    tty: true
     working_dir: /app
     volumes:
       - "./OlivOS:/app/OlivOS"
       - "./napcat/config:/app/napcat/config"
     environment:
       - LOGIN_UIN=${ACCOUNT}
-      - PY_PACKAGES=${PY_PACKAGES:-}
 
     networks:
       - olivos

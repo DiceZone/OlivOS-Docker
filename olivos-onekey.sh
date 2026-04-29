@@ -19,7 +19,6 @@ IMAGE_TAG="latest"  # 默认使用 latest
 CHANNEL=""          # 暂存渠道
 LOGIN_METHOD="napcat"  # 登录方式: napcat/llbot，默认为 napcat
 AUTO_CONFIRM=false     # 静默模式
-PY_PACKAGES=""         # 额外 Python 包
 
 # 允许的渠道值
 ALLOWED_CHANNELS=("latest" "stable" "pre")
@@ -73,13 +72,6 @@ if [ $# -eq 0 ]; then
         esac
     done
 
-    # 询问额外 Python 包
-    echo ""
-    echo "可选：指定额外安装的 Python 包（多个包名用空格分隔）"
-    echo "例如：requests aiohttp beautifulsoup4"
-    read -p "请输入（留空跳过）: " py_input
-    PY_PACKAGES=${py_input:-}
-
     # 询问 QQ 号
     echo ""
     while true; do
@@ -98,9 +90,6 @@ if [ $# -eq 0 ]; then
     # 确认执行
     echo ""
     echo "即将部署 OlivOS，使用 $CHANNEL 版本渠道，登录方式: $LOGIN_METHOD，QQ 号: $ACCOUNT"
-    if [ -n "$PY_PACKAGES" ]; then
-        echo "额外 Python 包: $PY_PACKAGES"
-    fi
     read -p "确认执行？(y/N): " confirm
 
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
@@ -111,7 +100,7 @@ if [ $# -eq 0 ]; then
     echo ""
 else
     # 参数处理逻辑
-    while getopts ":c:m:a:p:y" opt; do
+    while getopts ":c:m:a:y" opt; do
       case $opt in
         c)
           CHANNEL="$OPTARG"
@@ -121,9 +110,6 @@ else
           ;;
         a)
           ACCOUNT="$OPTARG"
-          ;;
-        p)
-          PY_PACKAGES="$OPTARG"
           ;;
         y)
           AUTO_CONFIRM=true
@@ -323,7 +309,6 @@ cd "$OLIVOS_BASE_DIR"
 echo "创建 .env 配置文件..."
 sudo tee "$ENV_FILE" > /dev/null <<EOF
 ACCOUNT=$ACCOUNT
-PY_PACKAGES=$PY_PACKAGES
 EOF
 echo ".env 文件已创建"
 sleep 1
@@ -430,15 +415,12 @@ services:
   olivos-app:
     image: shiaworkshop/olivos:$IMAGE_TAG
     container_name: olivos-main-\${ACCOUNT}
-    stdin_open: true
-    tty: true
     working_dir: /app
     volumes:
       - "./OlivOS:/app/OlivOS"
       - "./llbot/config:/app/napcat/config"
     environment:
       - LOGIN_UIN=\${ACCOUNT}
-      - PY_PACKAGES=\${PY_PACKAGES:-}
     networks:
       - olivos
     depends_on:
@@ -487,15 +469,12 @@ services:
   olivos-app:
     image: shiaworkshop/olivos:$IMAGE_TAG
     container_name: olivos-main-\${ACCOUNT}
-    stdin_open: true
-    tty: true
     working_dir: /app
     volumes:
       - "./OlivOS:/app/OlivOS"
       - "./napcat/config:/app/napcat/config"
     environment:
       - LOGIN_UIN=\${ACCOUNT}
-      - PY_PACKAGES=\${PY_PACKAGES:-}
     networks:
       - olivos
     depends_on:
@@ -578,11 +557,6 @@ echo "登录方式: $LOGIN_METHOD"
 echo "骰娘 QQ 号: $ACCOUNT"
 echo ""
 
-if [ -n "$PY_PACKAGES" ]; then
-    echo "额外 Python 包已配置: $PY_PACKAGES"
-    echo ""
-fi
-
 if [ "$LOGIN_METHOD" == "napcat" ]; then
     echo "NapCat WebUI（扫码登录用）:"
     echo "  内网: http://${INTERNAL_IP}:${WEBUI_PORT:-6099}"
@@ -610,7 +584,7 @@ echo "  # 更新服务"
 echo "  sudo docker compose -p olivos-${ACCOUNT} pull"
 echo "  sudo docker compose -p olivos-${ACCOUNT} up -d --force-recreate"
 echo ""
-echo "如需自定义端口或额外 Python 包，编辑 ${OLIVOS_BASE_DIR}/.env 文件后重启即可"
+echo "如需自定义端口，编辑 ${OLIVOS_BASE_DIR}/.env 文件后重启即可"
 echo ""
 echo "============================================================"
 echo "⚡要饭链接：https://afdian.com/a/dicezone"
