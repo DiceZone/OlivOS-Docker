@@ -2,7 +2,21 @@ name: Docker Build and Push
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: '构建类型：stable（稳定版）或 pre（预发布版）'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - pre
+      upstream_tag:
+        description: '上游版本标签（如 v0.11.81）'
+        required: true
+        type: string
   repository_dispatch:
+    types: [build]
 
 env:
   DOCKERHUB_REPO: shiaworkshop/olivos
@@ -18,10 +32,34 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: 读取上游版本号
-        id: read_version
+      - name: 确定构建参数
+        id: resolve_params
         run: |
-          UPSTREAM_TAG=$(cat last_release.txt)
+          # workflow_dispatch 场景：从 inputs 获取
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BUILD_TYPE="${{ inputs.build_type }}"
+            UPSTREAM_TAG="${{ inputs.upstream_tag }}"
+          else
+            # repository_dispatch 场景：从事件 payload 获取
+            BUILD_TYPE="${{ github.event.client_payload.build_type }}"
+            UPSTREAM_TAG="${{ github.event.client_payload.upstream_tag }}"
+          fi
+
+          # fallback: 如果没有传入标签, 从文件读取
+          if [ -z "$UPSTREAM_TAG" ]; then
+            if [ "$BUILD_TYPE" = "pre" ] && [ -f "pre_release.json" ]; then
+              UPSTREAM_TAG=$(jq -r '.tag_name // ""' pre_release.json)
+            elif [ -f "last_release.json" ]; then
+              UPSTREAM_TAG=$(jq -r '.tag_name // ""' last_release.json)
+            fi
+            # 如果还是没有值，回退到 latest（不会构建失败）
+            if [ -z "$UPSTREAM_TAG" ]; then
+              BUILD_TYPE="stable"
+              UPSTREAM_TAG="latest"
+            fi
+          fi
+
+          echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
           echo "UPSTREAM_TAG=$UPSTREAM_TAG" >> $GITHUB_ENV
 
       - name: 获取上游 Commit SHA
@@ -53,7 +91,9 @@ jobs:
           file: ${{ env.DOCKERFILE_PATH }}
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            UPSTREAM_TAG=${{ env.UPSTREAM_TAG }}
           tags: |
             ${{ env.DOCKERHUB_REPO }}:${{ env.UPSTREAM_TAG }}
             ${{ env.DOCKERHUB_REPO }}:${{ env.SHORT_SHA }}
-            ${{ env.DOCKERHUB_REPO }}:latest
+            ${{ env.DOCKERHUB_REPO }}:${{ env.BUILD_TYPE }}

@@ -21,70 +21,156 @@ jobs:
       - name: 读取当前跟踪的上游版本
         id: read_last_version
         run: |
-          if [ -f "last_release.txt" ]; then
-            echo "LAST_VERSION=$(cat last_release.txt)" >> $GITHUB_ENV
+          # 读取稳定版本
+          if [ -f "last_release.json" ]; then
+            echo "LAST_STABLE=$(jq -r '.tag_name // "0.0.0"' last_release.json)" >> $GITHUB_ENV
           else
-            echo "LAST_VERSION=0.0.0" >> $GITHUB_ENV
+            echo "LAST_STABLE=0.0.0" >> $GITHUB_ENV
+          fi
+          # 读取预发布版本
+          if [ -f "pre_release.json" ]; then
+            echo "LAST_PRE=$(jq -r '.tag_name // ""' pre_release.json)" >> $GITHUB_ENV
+          else
+            echo "LAST_PRE=" >> $GITHUB_ENV
           fi
 
-      - name: 获取上游最新 Release
+      - name: 获取上游最新 Release 和 Pre-release
         id: get_upstream_release
-        run: |
-          RESPONSE=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/OlivOS-Team/OlivOS/releases/latest")
-          TAG_NAME=$(echo "$RESPONSE" | jq -r .tag_name)
-          echo "UPSTREAM_TAG=$TAG_NAME" >> $GITHUB_ENV
-
-      - name: 检查是否需要处理
-        id: check_version
-        run: |
-          if [[ "${{ env.LAST_VERSION }}" < "${{ env.UPSTREAM_TAG }}" ]]; then
-            echo "NEW_RELEASE=true" >> $GITHUB_ENV
-          else
-            echo "NEW_RELEASE=false" >> $GITHUB_ENV
-          fi
-
-      - name: 处理新版本
-        if: env.NEW_RELEASE == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          # 清理标签名
-          CLEAN_TAG=$(echo "${{ env.UPSTREAM_TAG }}" | sed -E 's/[^a-zA-Z0-9.-]+/-/g; s/^-//; s/-+/-/g; s/-$//')
-
-          # 创建 Release
-          curl -s -X POST \
+          # 获取所有 Releases（包含 pre-release）
+          ALL_RELEASES=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/releases" \
-            -d '{
-              "tag_name": "'"${CLEAN_TAG}"'",
-              "body": "由官方项目发布 release 自动触发\n对应上游版本: ${{ env.UPSTREAM_TAG }}",
-              "draft": false,
-              "prerelease": false
-            }'
+            "https://api.github.com/repos/OlivOS-Team/OlivOS/releases?per_page=10")
 
-          # 更新跟踪文件
-          echo "${{ env.UPSTREAM_TAG }}" > last_release.txt
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add last_release.txt
-          git commit -m "更新上游版本跟踪至 ${{ env.UPSTREAM_TAG }}"
-          git push "https://${{ github.actor }}:$GH_PAT@github.com/${{ github.repository }}.git" HEAD:main --force
+          # 获取最新的 stable release
+          STABLE_RELEASE=$(echo "$ALL_RELEASES" | jq '[.[] | select(.prerelease == false)] | first')
+          STABLE_TAG=$(echo "$STABLE_RELEASE" | jq -r '.tag_name // "0.0.0"')
+          STABLE_DATE=$(echo "$STABLE_RELEASE" | jq -r '.published_at // ""')
 
-      - name: 触发 Docker 构建
-        if: env.NEW_RELEASE == 'true'
+          # 获取最新的 pre-release（按 created_at 排序取最新）
+          PRE_RELEASE=$(echo "$ALL_RELEASES" | jq '[.[] | select(.prerelease == true)] | first')
+          PRE_TAG=$(echo "$PRE_RELEASE" | jq -r '.tag_name // ""')
+          PRE_DATE=$(echo "$PRE_RELEASE" | jq -r '.published_at // ""')
+
+          echo "STABLE_TAG=$STABLE_TAG" >> $GITHUB_ENV
+          echo "STABLE_DATE=$STABLE_DATE" >> $GITHUB_ENV
+          echo "PRE_TAG=$PRE_TAG" >> $GITHUB_ENV
+          echo "PRE_DATE=$PRE_DATE" >> $GITHUB_ENV
+
+      - name: 检查版本变更并触发构建
+        id: check_version
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          curl -X POST \
-            -H "Authorization: Bearer $GH_PAT" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/DiceZone/OlivOS-Docker/actions/workflows/docker-publish.yml/dispatches" \
-            -d '{
-              "ref": "main"
-            }'
+          NEW_STABLE=false
+          NEW_PRE=false
+
+          # 检查 stable 版本是否有更新
+          if [[ -n "${{ env.STABLE_TAG }}" && "${{ env.STABLE_TAG }}" != "null" ]]; then
+            if [[ "${{ env.LAST_STABLE }}" < "${{ env.STABLE_TAG }}" ]]; then
+              NEW_STABLE=true
+              echo "检测到新的稳定版本: ${{ env.STABLE_TAG }}"
+            fi
+          fi
+
+          # 检查 pre-release 版本是否有更新
+          if [[ -n "${{ env.PRE_TAG }}" && "${{ env.PRE_TAG }}" != "null" ]]; then
+            if [[ "${{ env.LAST_PRE }}" != "${{ env.PRE_TAG }}" ]]; then
+              NEW_PRE=true
+              echo "检测到新的预发布版本: ${{ env.PRE_TAG }}"
+            fi
+          fi
+
+          # 更新 last_release.json / pre_release.json / release_info.json
+          jq -n \
+            --arg tag "${{ env.STABLE_TAG }}" \
+            --arg date "${{ env.STABLE_DATE }}" \
+            '{type: "stable", tag_name: $tag, published_at: $date}' > last_release.json
+
+          jq -n \
+            --arg tag "${{ env.PRE_TAG }}" \
+            --arg date "${{ env.PRE_DATE }}" \
+            '{type: "pre-release", tag_name: $tag, published_at: $date}' > pre_release.json
+
+          jq -n \
+            --slurpfile stable last_release.json \
+            --slurpfile pre pre_release.json \
+            '{stable: $stable[0], pre: $pre[0]}' > release_info.json
+
+          # 处理 stable 版本
+          if [ "$NEW_STABLE" = "true" ]; then
+            # 清理标签名
+            CLEAN_TAG=$(echo "${{ env.STABLE_TAG }}" | sed -E 's/[^a-zA-Z0-9.-]+/-/g; s/^-//; s/-+/-/g; s/-$//')
+
+            # 创建 Release
+            curl -s -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases" \
+              -d '{
+                "tag_name": "'"${CLEAN_TAG}"'",
+                "body": "由官方项目发布 release 自动触发\n对应上游版本: ${{ env.STABLE_TAG }}",
+                "draft": false,
+                "prerelease": false
+              }'
+
+            # 更新跟踪文件（release_info.json 已在上方统一更新）
+            # 触发稳定版 Docker 构建（latest + version tag）
+            curl -X POST \
+              -H "Authorization: Bearer $GH_PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/DiceZone/OlivOS-Docker/actions/workflows/docker-publish.yml/dispatches" \
+              -d '{
+                "ref": "main",
+                "inputs": {
+                  "build_type": "stable",
+                  "upstream_tag": "'"${{ env.STABLE_TAG }}"'"
+                }
+              }'
+          fi
+
+          # 处理 pre-release 版本
+          if [ "$NEW_PRE" = "true" ]; then
+            # 清理标签名
+            CLEAN_PRE_TAG=$(echo "${{ env.PRE_TAG }}" | sed -E 's/[^a-zA-Z0-9.-]+/-/g; s/^-//; s/-+/-/g; s/-$//')
+
+            # 创建 Pre-release（标记为 prerelease）
+            curl -s -X POST \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases" \
+              -d '{
+                "tag_name": "'"${CLEAN_PRE_TAG}-pre"'",
+                "body": "由官方项目预发布自动触发\n对应上游版本: ${{ env.PRE_TAG }}",
+                "draft": false,
+                "prerelease": true
+              }'
+
+            # 触发预发布 Docker 构建（pre tag）
+            curl -X POST \
+              -H "Authorization: Bearer $GH_PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/DiceZone/OlivOS-Docker/actions/workflows/docker-publish.yml/dispatches" \
+              -d '{
+                "ref": "main",
+                "inputs": {
+                  "build_type": "pre",
+                  "upstream_tag": "'"${{ env.PRE_TAG }}"'"
+                }
+              }'
+          fi
+
+          # 如有任何变更，提交更新
+          if [ "$NEW_STABLE" = "true" ] || [ "$NEW_PRE" = "true" ]; then
+            git config --global user.name "GitHub Actions"
+            git config --global user.email "actions@github.com"
+            git add last_release.json pre_release.json release_info.json
+            git commit -m "更新上游版本跟踪 - stable: ${{ env.STABLE_TAG }}, pre: ${{ env.PRE_TAG }}"
+            git push "https://${{ github.actor }}:$GH_PAT@github.com/${{ github.repository }}.git" HEAD:main --force
+          else
+            echo "未检测到版本变更，跳过"
+          fi

@@ -10,6 +10,8 @@ services:
       - "./napcat/config:/app/napcat/config"
     environment:
       - LOGIN_UIN=${ACCOUNT}
+      - PY_PACKAGES=${PY_PACKAGES:-}
+
     networks:
       - olivos
     depends_on:
@@ -25,8 +27,6 @@ services:
       - "./napcat/QQ_DATA:/app/.config/QQ"
       - "./OlivOS:/app/OlivOS"
     environment:
-      - NAPCAT_UID=${NAPCAT_UID:-1000}
-      - NAPCAT_GID=${NAPCAT_GID:-1000}
       - ACCOUNT=${ACCOUNT}
     networks:
       - olivos

@@ -8,6 +8,10 @@ RUN apt-get update && \
     echo $TZ > /etc/timezone && \
     rm -rf /var/lib/apt/lists/*
 
+# 配置清华源为默认 pip 源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+
 # 初始化应用目录
 WORKDIR /app/OlivOS
 RUN git clone https://github.com/OlivOS-Team/OlivOS.git . && \
@@ -28,7 +32,7 @@ RUN mkdir -p /app/OlivOS/plugin/app && \
 # 下载 NapCat配置文件
 RUN mkdir -p /app/napcat/config && \
     wget -q -O /app/napcat/config/config-example.json \
-    https://raw.githubusercontent.com/ShiaBox/OlivOS-Docker/refs/heads/main/NapCat/config-example.json
+    https://raw.githubusercontent.com/DiceZone/OlivOS-Docker/refs/heads/main/NapCat/config-example.json
 
 # 创建备份目录
 RUN cp -r /app /opt/backup-app
@@ -112,6 +116,12 @@ EOF\n\
     else\n\
         echo "检测到已有 NapCat 配置文件，保留用户修改：${NAPCAT_CONF}"\n\
     fi\n\
+fi\n\
+\n\
+# Python 依赖包安装（用户通过 PY_PACKAGES 环境变量指定）\n\
+if [ -n "${PY_PACKAGES:-}" ]; then\n\
+    echo "检测到 PY_PACKAGES 环境变量，正在安装额外 Python 包：${PY_PACKAGES}"\n\
+    pip install --no-cache-dir ${PY_PACKAGES} || echo "警告：部分 Python 包安装失败，请检查包名称是否正确"\n\
 fi\n\
 \n\
 cd /app/OlivOS\n\
