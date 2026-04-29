@@ -1,10 +1,10 @@
 # OlivOS-Docker
 
-用于在linux上使用docker-compose快速组装OlivOS+Napcat（或LLBot）
+用于在 linux 上使用 docker-compose 快速组装 [OlivOS](https://github.com/OlivOS-Team/OlivOS) + [Napcat](https://github.com/NapNeko/NapCatQQ) 或 [LLBot](https://github.com/LLOneBot/LuckyLilliaBot)
 
 支援amd64/arm64版本
 
-OlivOS镜像会随上游版本发布自动更新，支持稳定版和预发布版双通道
+OlivOS 镜像会随上游版本发布自动更新，支持稳定版和预发布版双通道
 
 [Docker Hub](https://hub.docker.com/r/shiaworkshop/olivos)
 
@@ -27,13 +27,12 @@ bash <(curl -sL olivos.dice.zone)
 ### 参数用法
 
 ```bash
-bash <(curl -sL ...) -a 123456 -c stable -m napcat
+bash <(curl -sL olivos.dice.zone) -a 123456 -c stable -m napcat
 ```
 
 - `-a`：骰娘QQ号（必须）
 - `-c`：版本渠道（latest/stable/pre，默认 latest）
 - `-m`：登录方式（napcat/llbot，默认 napcat）
-- `-p`：额外Python包（如 `-p "requests aiohttp"`）
 - `-y`：静默模式，跳过确认
 
 ## 手动部署
@@ -72,9 +71,7 @@ bash <(curl -sL ...) -a 123456 -c stable -m napcat
 如需使用 LLBot 替代 NapCat，请参考 `olivos-onekey.sh` 中的 LLBot 模式 compose 配置，
 或直接使用一键脚本（`-m llbot` 参数）。
 
-LLBot 使用 **HTTP Server + HTTP Client** 模式对接 OlivOS：
-- HTTP Server 监听 3000 端口，接收 OlivOS 的 API 请求
-- HTTP Client 上报事件到 `http://olivos-app:55001/OlivOSMsgApi/qq/onebot/default`
+LLBot 使用 **HTTP Server + HTTP Client** 模式对接 OlivOS。`MODE=llbot` 时可通过 `-m llbot` 参数自动配置。
 
 ### 运行服务
 1. 启动所有服务

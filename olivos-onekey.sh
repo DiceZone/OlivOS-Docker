@@ -421,6 +421,7 @@ services:
       - "./llbot/config:/app/napcat/config"
     environment:
       - LOGIN_UIN=\${ACCOUNT}
+      - MODE=llbot
     networks:
       - olivos
     depends_on:
@@ -475,6 +476,7 @@ services:
       - "./napcat/config:/app/napcat/config"
     environment:
       - LOGIN_UIN=\${ACCOUNT}
+      - MODE=napcat
     networks:
       - olivos
     depends_on:
@@ -491,6 +493,7 @@ services:
       - "./OlivOS:/app/OlivOS"
     environment:
       - ACCOUNT=\${ACCOUNT}
+      - MODE=olivos
     networks:
       - olivos
     mac_address: "${MAC_ADDRESS}"
