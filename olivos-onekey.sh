@@ -612,7 +612,7 @@ services:
     image: linyuchen/pmhq:latest
     privileged: true
     container_name: pmhq-${ACCOUNT}
-    hostname: OlivOS-PMHQ-${ACCOUNT}
+    hostname: DiceZone-${ACCOUNT}
     environment:
       - ENABLE_HEADLESS=false
       - AUTO_LOGIN_QQ=${ACCOUNT}
@@ -627,7 +627,7 @@ services:
     ports:
       - "${WEBUI_PORT}:3080"
     container_name: llbot-${ACCOUNT}
-    hostname: OlivOS-LLBot-${ACCOUNT}
+    hostname: DiceZone-${ACCOUNT}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -667,6 +667,7 @@ services:
   napcat:
     image: mlikiowa/napcat-docker:latest
     container_name: napcat-${ACCOUNT}
+    hostname: DiceZone-${ACCOUNT}
     ports:
       - "${WEBUI_PORT}:6099"
     volumes:
