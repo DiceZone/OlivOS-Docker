@@ -232,6 +232,29 @@ generate_password() {
     echo "$password"
 }
 
+# 检测当前服务器IP是否在中国大陆
+check_china_ip() {
+    local country
+    echo "检测服务器地理位置..."
+    country=$(curl -s --connect-timeout 5 https://ipinfo.io/json 2>/dev/null | grep -o '"country":"[^"]*"' | cut -d'"' -f4)
+    if [ "$country" == "CN" ]; then
+        echo "检测到服务器在中国大陆，将使用国内镜像优化"
+        return 0
+    else
+        echo "检测到服务器在中国大陆之外，将使用官方源"
+        return 1
+    fi
+}
+
+# 检测IP地理位置，决定是否使用国内优化
+IN_CHINA=true
+if check_china_ip; then
+    IN_CHINA=true
+else
+    IN_CHINA=false
+fi
+sleep 1
+
 # 安装 MCSM
 echo "正在安装 MCSManager..."
 sleep 1
@@ -259,8 +282,13 @@ else
         echo "已下载Docker安装脚本"
         sleep 1
 
-        sed -i 's|https://download.docker.com|https://mirrors.tencent.com/docker-ce|g' get-docker.sh
-        echo "已配置腾讯云镜像源"
+        # 国内服务器替换为腾讯云镜像源加速
+        if [ "$IN_CHINA" == true ]; then
+            sed -i 's|https://download.docker.com|https://mirrors.tencent.com/docker-ce|g' get-docker.sh
+            echo "已配置腾讯云镜像源"
+        else
+            echo "服务器不在中国大陆，使用官方源"
+        fi
         sleep 1
 
         sudo sh get-docker.sh
@@ -302,17 +330,21 @@ else
     sleep 1
 fi
 
-# 使用毫秒镜像服务加速
-echo "配置毫秒镜像服务加速..."
-sudo mkdir -p /etc/docker
-sudo tee /etc/docker/daemon.json >/dev/null <<EOF
+# 国内服务器配置毫秒镜像服务加速
+if [ "$IN_CHINA" == true ]; then
+    echo "配置毫秒镜像服务加速..."
+    sudo mkdir -p /etc/docker
+    sudo tee /etc/docker/daemon.json >/dev/null <<EOF
 {
   "registry-mirrors": [
     "https://docker.1ms.run"
   ]
 }
 EOF
-echo "已配置镜像加速"
+    echo "已配置镜像加速"
+else
+    echo "服务器不在中国大陆，跳过镜像加速配置"
+fi
 sleep 1
 
 sudo systemctl restart docker
