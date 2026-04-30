@@ -236,7 +236,7 @@ generate_password() {
 check_china_ip() {
     local country
     echo "检测服务器地理位置..."
-    country=$(curl -s --connect-timeout 5 https://ipinfo.io/json 2>/dev/null | grep -o '"country":"[^"]*"' | cut -d'"' -f4)
+    country=$(curl -s --connect-timeout 5 https://ipinfo.io/json 2>/dev/null | grep -o '"country": *"[^"]*"' | cut -d'"' -f4)
     if [ "$country" == "CN" ]; then
         echo "检测到服务器在中国大陆，将使用国内镜像优化"
         return 0
