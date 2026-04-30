@@ -18,6 +18,7 @@ fi
 IMAGE_TAG="latest"  # 默认使用 latest
 CHANNEL=""          # 暂存渠道
 LOGIN_METHOD="napcat"  # 登录方式: napcat/llbot，默认为 napcat
+OLIVOS_COUNT="1"       # 部署数量，默认1
 AUTO_CONFIRM=false     # 静默模式
 
 # 允许的渠道值
@@ -37,7 +38,21 @@ if [ $# -eq 0 ]; then
     echo "=================================================================="
     echo ""
 
+    # 询问部署数量
+    while true; do
+        read -p "请输入要部署的 OlivOS 数量 (1-99，默认1): " num_input
+        num_input=${num_input:-1}
+
+        if [[ $num_input =~ ^[1-9][0-9]?$ ]] && [ $num_input -le 99 ]; then
+            OLIVOS_COUNT=$num_input
+            break
+        else
+            echo "错误：请输入 1-99 之间的数字"
+        fi
+    done
+
     # 询问版本渠道
+    echo ""
     echo "请选择版本渠道："
     echo "1) latest - 最新版本（默认，推荐）"
     echo "2) stable - 稳定版本"
@@ -72,24 +87,9 @@ if [ $# -eq 0 ]; then
         esac
     done
 
-    # 询问 QQ 号
-    echo ""
-    while true; do
-        read -p "请输入骰娘 QQ 号（必须输入）: " ACCOUNT
-
-        if [ -z "$ACCOUNT" ]; then
-            echo "错误：QQ号不能为空"
-        elif [[ ! $ACCOUNT =~ ^[0-9]+$ ]]; then
-            echo "错误：QQ号必须是纯数字"
-        else
-            echo "已输入骰娘 QQ 号: $ACCOUNT"
-            break
-        fi
-    done
-
     # 确认执行
     echo ""
-    echo "即将部署 OlivOS，使用 $CHANNEL 版本渠道，登录方式: $LOGIN_METHOD，QQ 号: $ACCOUNT"
+    echo "即将部署 $OLIVOS_COUNT 个 OlivOS，使用 $CHANNEL 版本渠道，登录方式: $LOGIN_METHOD"
     read -p "确认执行？(y/N): " confirm
 
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
@@ -100,13 +100,16 @@ if [ $# -eq 0 ]; then
     echo ""
 else
     # 参数处理逻辑
-    while getopts ":c:m:a:y" opt; do
+    while getopts ":c:m:n:a:y" opt; do
       case $opt in
         c)
           CHANNEL="$OPTARG"
           ;;
         m)
           LOGIN_METHOD="$OPTARG"
+          ;;
+        n)
+          OLIVOS_COUNT="$OPTARG"
           ;;
         a)
           ACCOUNT="$OPTARG"
@@ -145,17 +148,14 @@ else
       LOGIN_METHOD="napcat"
     fi
 
-    # 验证 QQ 号
-    if [ -z "$ACCOUNT" ]; then
-        echo "错误：必须指定骰娘 QQ 号（-a 参数）"
-        echo "用法: bash <(curl -sL olivos.dice.zone) -a 123456"
-        echo "       bash <(curl -sL olivos.dice.zone) -a 123456 -c stable -m llbot"
+    # 验证数量参数
+    if [ -n "$OLIVOS_COUNT" ]; then
+      if ! [[ $OLIVOS_COUNT =~ ^[1-9][0-9]?$ ]] || [ $OLIVOS_COUNT -gt 99 ]; then
+        echo "错误：-n 参数的值必须是 1-99 之间的数字"
         exit 1
-    fi
-
-    if [[ ! $ACCOUNT =~ ^[0-9]+$ ]]; then
-        echo "错误：QQ号必须是纯数字"
-        exit 1
+      fi
+    else
+      OLIVOS_COUNT=1
     fi
 fi
 
@@ -166,6 +166,50 @@ fi
 echo "将使用镜像标签: shiaworkshop/olivos:$IMAGE_TAG"
 sleep 1
 
+# 配置目录和文件路径
+OLIVOS_BASE_DIR="/opt/OlivOS-Docker"
+QQ_ACCOUNTS=()  # 存储所有QQ号
+
+echo "将部署 $OLIVOS_COUNT 个 OlivOS 实例"
+sleep 1
+
+# 收集所有QQ号
+if [ -n "$ACCOUNT" ]; then
+    # 如果通过 -a 指定了 QQ 号，使用该值（单实例模式）
+    QQ_ACCOUNTS+=("$ACCOUNT")
+else
+    # 交互式收集 QQ 号（与 sealdice 一致）
+    for ((i=1; i<=OLIVOS_COUNT; i++)); do
+        while true; do
+            read -p "请输入第 $i 个骰娘 QQ 号（必须输入）: " QQ_INPUT
+
+            if [ -z "$QQ_INPUT" ]; then
+                echo "错误：QQ号不能为空"
+                continue
+            elif [[ ! $QQ_INPUT =~ ^[0-9]+$ ]]; then
+                echo "错误：QQ号必须是纯数字"
+                continue
+            elif [[ " ${QQ_ACCOUNTS[@]} " =~ " $QQ_INPUT " ]]; then
+                echo "错误：该QQ号已存在，请输入不同的QQ号"
+                continue
+            else
+                echo "已输入第 $i 个骰娘QQ号: $QQ_INPUT"
+                sleep 1
+                break
+            fi
+        done
+
+        QQ_ACCOUNTS+=("$QQ_INPUT")
+    done
+fi
+
+echo "已收集所有QQ号: ${QQ_ACCOUNTS[*]}"
+sleep 1
+
+# 初始化密码存储数组
+LLBOT_WEBUI_PASSWORDS=()
+NAPCAT_PASSWORDS=()
+
 # 检测 Docker 是否已安装
 check_docker_installed() {
     if command -v docker &> /dev/null && docker compose version &> /dev/null; then
@@ -175,17 +219,25 @@ check_docker_installed() {
     fi
 }
 
-# 配置目录和文件路径
-OLIVOS_BASE_DIR="/opt/OlivOS-Docker"
-COMPOSE_FILE="docker-compose.yml"
-ENV_FILE=".env"
-
 # 生成随机MAC地址
 generate_mac() {
     random_bytes=$(openssl rand -hex 4)
     formatted_bytes=$(echo "$random_bytes" | sed -E 's/(..)(..)(..)(..)/\1:\2:\3:\4/')
     echo "02:42:$formatted_bytes"
 }
+
+# 生成16位随机密码
+generate_password() {
+    password=$(openssl rand -base64 32 | tr -d '=+/' | cut -c1-16)
+    echo "$password"
+}
+
+# 安装 MCSM
+echo "正在安装 MCSManager..."
+sleep 1
+sudo su -c "wget -qO- https://script.mcsmanager.com/setup_cn.sh | bash"
+echo "MCSManager 安装完成"
+sleep 1
 
 # 检测并安装 Docker
 if check_docker_installed; then
@@ -202,13 +254,11 @@ else
     while [ $retry_count -lt $max_retries ]; do
         echo "尝试 #$((retry_count+1)) 安装 Docker..."
 
-        # 使用自维护安装脚本镜像源解决国内网络问题
         curl --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 \
              -fsSL https://dice.zone/bash/docker_install.sh -o get-docker.sh
         echo "已下载Docker安装脚本"
         sleep 1
 
-        # 替换为腾讯云镜像源
         sed -i 's|https://download.docker.com|https://mirrors.tencent.com/docker-ce|g' get-docker.sh
         echo "已配置腾讯云镜像源"
         sleep 1
@@ -217,7 +267,6 @@ else
         echo "执行Docker安装脚本"
         sleep 1
 
-        # 验证安装
         if command -v docker &> /dev/null && docker compose version &> /dev/null; then
             install_success=true
             break
@@ -228,10 +277,8 @@ else
         fi
     done
 
-    # 清理临时文件
     sudo rm -f get-docker.sh
 
-    # 最终验证安装
     if ! $install_success; then
         echo ""
         echo "============================================================"
@@ -250,7 +297,6 @@ else
         sleep 1
     fi
 
-    # 添加当前用户到docker组
     sudo usermod -aG docker $USER
     echo "已将当前用户添加到docker组"
     sleep 1
@@ -291,38 +337,136 @@ else
     sleep 1
 fi
 
+# 创建 MCSManager 实例配置文件目录
+MCS_CONFIG_DIR="/opt/mcsmanager/daemon/data/InstanceConfig"
+echo "配置 MCSManager 实例..."
+sudo mkdir -p "$MCS_CONFIG_DIR"
+echo "已创建MCSManager配置目录"
+sleep 1
+
 # 创建 OlivOS-Docker 基础目录
 echo "设置 OlivOS-Docker 环境..."
 sudo mkdir -p -m 755 "$OLIVOS_BASE_DIR"
-sudo mkdir -p -m 755 "$OLIVOS_BASE_DIR/OlivOS"
-echo "已创建 OlivOS 数据目录: $OLIVOS_BASE_DIR"
+echo "已创建 OlivOS 基础目录: $OLIVOS_BASE_DIR"
 sleep 1
 
-# 生成MAC地址
-MAC_ADDRESS=$(generate_mac)
-echo "生成 MAC 地址: $MAC_ADDRESS"
+# 为每个 OlivOS 创建独立的配置和目录
+for i in "${!QQ_ACCOUNTS[@]}"; do
+    ACCOUNT="${QQ_ACCOUNTS[$i]}"
+    OLIVOS_DIR="$OLIVOS_BASE_DIR/$ACCOUNT"
+    COMPOSE_FILE="$OLIVOS_DIR/docker-compose.yml"
+    MCS_CONFIG_FILE="$MCS_CONFIG_DIR/olivos-${ACCOUNT}.json"
 
-# 进入基础目录
-cd "$OLIVOS_BASE_DIR"
+    # 计算端口分配
+    WEBUI_PORT=$((6099 + i))
 
-# 创建 .env 文件
-echo "创建 .env 配置文件..."
-sudo tee "$ENV_FILE" > /dev/null <<EOF
-ACCOUNT=$ACCOUNT
+    echo "配置第 $((i+1)) 个 OlivOS (QQ: $ACCOUNT)..."
+    sleep 1
+
+    # 为每个实例生成独立的MAC地址
+    MAC_ADDRESS=$(generate_mac)
+    echo "为 OlivOS $ACCOUNT 生成MAC地址: $MAC_ADDRESS"
+
+    # 创建实例专属目录
+    sudo mkdir -p "$OLIVOS_DIR"
+
+    # 创建 MCSManager 实例配置
+    sudo tee "$MCS_CONFIG_FILE" > /dev/null <<EOF
+{
+    "nickname": "OlivOS-$ACCOUNT",
+    "startCommand": "docker compose up",
+    "stopCommand": "^C",
+    "cwd": "$OLIVOS_DIR",
+    "ie": "utf8",
+    "oe": "utf8",
+    "createDatetime": $(date +%s)000,
+    "lastDatetime": $(date +%s)000,
+    "type": "universal",
+    "tag": [
+        "olivos"
+    ],
+    "endTime": 0,
+    "fileCode": "utf8",
+    "processType": "general",
+    "updateCommand": "docker compose pull",
+    "crlf": 1,
+    "category": 0,
+    "enableRcon": false,
+    "rconPassword": "",
+    "rconPort": 0,
+    "rconIp": "",
+    "actionCommandList": [],
+    "terminalOption": {
+        "haveColor": false,
+        "pty": true,
+        "ptyWindowCol": 164,
+        "ptyWindowRow": 40
+    },
+    "eventTask": {
+        "autoStart": $([ $i -eq 0 ] && echo "true" || echo "false"),
+        "autoRestart": true,
+        "ignore": false
+    },
+    "docker": {
+        "containerName": "",
+        "image": "",
+        "ports": [],
+        "extraVolumes": [],
+        "memory": 0,
+        "networkMode": "bridge",
+        "networkAliases": [],
+        "cpusetCpus": "",
+        "cpuUsage": 0,
+        "maxSpace": 0,
+        "io": 0,
+        "network": 0,
+        "workingDir": "/data",
+        "env": [],
+        "changeWorkdir": true
+    },
+    "pingConfig": {
+        "ip": "",
+        "port": 25565,
+        "type": 1
+    },
+    "extraServiceConfig": {
+        "openFrpTunnelId": "",
+        "openFrpToken": "",
+        "isOpenFrp": false
+    }
+}
 EOF
-echo ".env 文件已创建"
-sleep 1
+    echo "MCSManager 实例配置已创建: $MCS_CONFIG_FILE"
 
-# 创建存放 NapCat/LLBot 配置的子目录
-if [ "$LOGIN_METHOD" == "napcat" ]; then
-    sudo mkdir -p "napcat/config" "napcat/QQ_DATA"
-    echo "NapCat 配置目录已创建"
-else
-    sudo mkdir -p "llbot/config" "llbot/QQ_DATA"
-    echo "LLBot 配置目录已创建"
+    # 根据登录方式创建目录和配置
+    if [ "$LOGIN_METHOD" == "napcat" ]; then
+        sudo mkdir -p "$OLIVOS_DIR/napcat/config" "$OLIVOS_DIR/napcat/QQ_DATA" "$OLIVOS_DIR/OlivOS"
 
-    # 生成 LLBot 配置文件（HTTP Server + HTTP Client 模式对接 OlivOS）
-    sudo tee "llbot/config/config_${ACCOUNT}.json" > /dev/null <<LLBOTCONF_EOF
+        # 为 NapCat 生成密码并创建 webui.json
+        NAPCAT_PASSWORD=$(generate_password)
+        NAPCAT_PASSWORDS+=("$NAPCAT_PASSWORD")
+
+        sudo tee "$OLIVOS_DIR/napcat/config/webui.json" > /dev/null <<EOF
+{
+    "host": "0.0.0.0",
+    "port": 6099,
+    "token": "$NAPCAT_PASSWORD",
+    "loginRate": 10,
+    "autoLoginAccount": "",
+    "disableWebUI": false,
+    "disableNonLANAccess": false
+}
+EOF
+        echo "NapCat WebUI 配置文件已生成"
+    else
+        sudo mkdir -p "$OLIVOS_DIR/llbot/config" "$OLIVOS_DIR/llbot/QQ_DATA" "$OLIVOS_DIR/OlivOS"
+
+        # 生成 LLBot WebUI 密码（与对接 token "7777777" 无关）
+        LLBOT_WEBUI_PASSWORD=$(generate_password)
+        LLBOT_WEBUI_PASSWORDS+=("$LLBOT_WEBUI_PASSWORD")
+
+        # 生成 LLBot 配置文件（token "7777777" 是 OlivOS 协议的对接凭证）
+        sudo tee "$OLIVOS_DIR/llbot/config/config_${ACCOUNT}.json" > /dev/null <<LLBOTCONF_EOF
 {
   "webui": {
     "enable": true,
@@ -404,23 +548,28 @@ else
   "ffmpeg": "/tmp/ffmpeg"
 }
 LLBOTCONF_EOF
-    echo "LLBot 配置文件已生成"
-fi
+        echo "LLBot 配置文件已生成"
 
-# 根据登录方式生成 docker-compose.yml
-echo "生成 docker-compose.yml..."
-if [ "$LOGIN_METHOD" == "llbot" ]; then
-    sudo tee "$COMPOSE_FILE" > /dev/null <<COMPOSE_EOF
+        # 创建 webui_token.txt
+        sudo tee "$OLIVOS_DIR/llbot/config/webui_token.txt" > /dev/null <<EOF
+$LLBOT_WEBUI_PASSWORD
+EOF
+        echo "LLBot WebUI 密码文件已创建"
+    fi
+
+    # 生成 docker-compose.yml
+    if [ "$LOGIN_METHOD" == "llbot" ]; then
+        sudo tee "$COMPOSE_FILE" > /dev/null <<COMPOSE_EOF
 services:
   olivos-app:
     image: shiaworkshop/olivos:$IMAGE_TAG
-    container_name: olivos-main-\${ACCOUNT}
+    container_name: olivos-main-${ACCOUNT}
     working_dir: /app
     volumes:
-      - "./OlivOS:/app/OlivOS"
-      - "./llbot/config:/app/napcat/config"
+      - "\${PWD}/OlivOS:/app/OlivOS"
+      - "\${PWD}/llbot/config:/app/napcat/config"
     environment:
-      - LOGIN_UIN=\${ACCOUNT}
+      - LOGIN_UIN=${ACCOUNT}
       - MODE=llbot
     networks:
       - olivos
@@ -430,23 +579,23 @@ services:
   pmhq:
     image: linyuchen/pmhq:latest
     privileged: true
-    container_name: pmhq-\${ACCOUNT}
-    hostname: OlivOS-PMHQ-\${ACCOUNT}
+    container_name: pmhq-${ACCOUNT}
+    hostname: OlivOS-PMHQ-${ACCOUNT}
     environment:
       - ENABLE_HEADLESS=false
-      - AUTO_LOGIN_QQ=\${ACCOUNT}
+      - AUTO_LOGIN_QQ=${ACCOUNT}
     networks:
       - olivos
     volumes:
-      - "./llbot/QQ_DATA:/root/.config/QQ"
-      - "./OlivOS:/app/OlivOS"
+      - "\${PWD}/llbot/QQ_DATA:/root/.config/QQ"
+      - "\${PWD}/OlivOS:/app/OlivOS"
 
   llbot:
     image: linyuchen/llbot:latest
     ports:
-      - "\${WEBUI_PORT:-6099}:3080"
-    container_name: llbot-\${ACCOUNT}
-    hostname: OlivOS-LLBot-\${ACCOUNT}
+      - "${WEBUI_PORT}:3080"
+    container_name: llbot-${ACCOUNT}
+    hostname: OlivOS-LLBot-${ACCOUNT}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -455,8 +604,8 @@ services:
     networks:
       - olivos
     volumes:
-      - "./llbot/QQ_DATA:/root/.config/QQ"
-      - "./llbot/config:/app/llbot/data:rw"
+      - "\${PWD}/llbot/QQ_DATA:/root/.config/QQ"
+      - "\${PWD}/llbot/config:/app/llbot/data:rw"
     depends_on:
       - pmhq
 
@@ -464,18 +613,18 @@ networks:
   olivos:
     driver: bridge
 COMPOSE_EOF
-else
-    sudo tee "$COMPOSE_FILE" > /dev/null <<COMPOSE_EOF
+    else
+        sudo tee "$COMPOSE_FILE" > /dev/null <<COMPOSE_EOF
 services:
   olivos-app:
     image: shiaworkshop/olivos:$IMAGE_TAG
-    container_name: olivos-main-\${ACCOUNT}
+    container_name: olivos-main-${ACCOUNT}
     working_dir: /app
     volumes:
-      - "./OlivOS:/app/OlivOS"
-      - "./napcat/config:/app/napcat/config"
+      - "\${PWD}/OlivOS:/app/OlivOS"
+      - "\${PWD}/napcat/config:/app/napcat/config"
     environment:
-      - LOGIN_UIN=\${ACCOUNT}
+      - LOGIN_UIN=${ACCOUNT}
       - MODE=napcat
     networks:
       - olivos
@@ -484,15 +633,15 @@ services:
 
   napcat:
     image: mlikiowa/napcat-docker:latest
-    container_name: napcat-\${ACCOUNT}
+    container_name: napcat-${ACCOUNT}
     ports:
-      - "\${WEBUI_PORT:-6099}:6099"
+      - "${WEBUI_PORT}:6099"
     volumes:
-      - "./napcat/config:/app/napcat/config"
-      - "./napcat/QQ_DATA:/app/.config/QQ"
-      - "./OlivOS:/app/OlivOS"
+      - "\${PWD}/napcat/config:/app/napcat/config"
+      - "\${PWD}/napcat/QQ_DATA:/app/.config/QQ"
+      - "\${PWD}/OlivOS:/app/OlivOS"
     environment:
-      - ACCOUNT=\${ACCOUNT}
+      - ACCOUNT=${ACCOUNT}
       - MODE=olivos
     networks:
       - olivos
@@ -502,23 +651,34 @@ networks:
   olivos:
     driver: bridge
 COMPOSE_EOF
-fi
-echo "docker-compose.yml 已生成"
+    fi
+    echo "docker-compose.yml 已生成"
+
+    # 设置目录权限
+    sudo chmod -R 755 "$OLIVOS_DIR"
+    if [ "$LOGIN_METHOD" == "napcat" ]; then
+        sudo chmod -R 777 "$OLIVOS_DIR/napcat/config"
+    else
+        sudo chmod -R 777 "$OLIVOS_DIR/llbot/config"
+    fi
+
+    # 输出实例配置完成信息
+    if [ "$LOGIN_METHOD" == "llbot" ]; then
+        echo "第 $((i+1)) 个 OlivOS 配置完成，端口: OlivOS(暂无独立端口), LLBot($WEBUI_PORT)"
+    else
+        echo "第 $((i+1)) 个 OlivOS 配置完成，端口: NapCat($WEBUI_PORT)"
+    fi
+    sleep 1
+done
+
+echo "所有 OlivOS 实例配置完成"
 sleep 1
 
-# 设置目录权限
-sudo chmod -R 755 "$OLIVOS_BASE_DIR"
-if [ "$LOGIN_METHOD" == "napcat" ]; then
-    sudo chmod -R 777 "$OLIVOS_BASE_DIR/napcat/config"
-else
-    sudo chmod -R 777 "$OLIVOS_BASE_DIR/llbot/config"
-fi
-
-# 启动服务
-echo "正在启动 OlivOS 服务..."
+# 重启 MCSManager daemon 以加载新配置
+echo "重启 MCSManager daemon..."
+sudo systemctl restart mcsm-daemon.service
+echo "MCSManager daemon 已重启"
 sleep 1
-export $(grep -v '^#' "$ENV_FILE" | xargs)
-sudo docker compose -p "olivos-${ACCOUNT}" up -d
 
 # 检测内网IP
 get_internal_ip() {
@@ -554,41 +714,56 @@ echo ""
 echo "============================================================"
 echo "安装完成！以下是重要信息："
 echo ""
-echo "OlivOS 数据目录: $OLIVOS_BASE_DIR"
+echo "OlivOS 容器数据目录: $OLIVOS_BASE_DIR"
 echo "使用的镜像标签: $IMAGE_TAG"
 echo "登录方式: $LOGIN_METHOD"
-echo "骰娘 QQ 号: $ACCOUNT"
+echo "部署的实例数量: $OLIVOS_COUNT"
 echo ""
-
-if [ "$LOGIN_METHOD" == "napcat" ]; then
-    echo "NapCat WebUI（扫码登录用）:"
-    echo "  内网: http://${INTERNAL_IP}:${WEBUI_PORT:-6099}"
-    echo "  公网: http://${EXTERNAL_IP}:${WEBUI_PORT:-6099}"
+echo "MCSManager面板访问地址:"
+echo "  公网访问: http://${EXTERNAL_IP}:23333"
+echo "  内网访问: http://${INTERNAL_IP}:23333"
+echo ""
+echo "各 OlivOS 实例访问地址:"
+for i in "${!QQ_ACCOUNTS[@]}"; do
+    ACCOUNT="${QQ_ACCOUNTS[$i]}"
+    WEBUI_PORT=$((6099 + i))
+    echo "  OlivOS $((i+1)) (QQ: $ACCOUNT):"
+    if [ "$LOGIN_METHOD" == "llbot" ]; then
+        echo "    LLBot WebUI: http://${EXTERNAL_IP}:$WEBUI_PORT"
+        echo "    LLBot WebUI 密码: ${LLBOT_WEBUI_PASSWORDS[$i]}"
+    else
+        echo "    NapCat WebUI: http://${EXTERNAL_IP}:$WEBUI_PORT"
+        echo "    NapCat WebUI 密码: ${NAPCAT_PASSWORDS[$i]}"
+    fi
+done
+echo ""
+echo "============================================================"
+echo ""
+echo "立即访问 MCSManager 面板，账号密码请在访问时自行设置"
+echo "已创建所有 OlivOS 实例并开始拉取镜像，请登录面板页面查看"
+echo ""
+if [ "$LOGIN_METHOD" == "llbot" ]; then
+    echo "可以直接扫描终端的字符二维码登录"
+    echo "或直接访问 LLBot WebUI 扫码登录"
 else
-    echo "LLBot WebUI（扫码登录用）:"
-    echo "  内网: http://${INTERNAL_IP}:${WEBUI_PORT:-6099}"
-    echo "  公网: http://${EXTERNAL_IP}:${WEBUI_PORT:-6099}"
+    echo "可以直接扫描终端的字符二维码登录"
+    echo "若终端的二维码被截断，请进入文件管理"
+    echo "或直接访问 NapCat WebUI 扫码登录"
 fi
 echo ""
-echo "管理命令:"
-echo "  # 查看 OlivOS 日志"
-echo "  sudo docker compose -p olivos-${ACCOUNT} logs -f olivos-app"
-echo ""
-echo "  # 查看 NapCat/LLBot 日志（获取二维码）"
-echo "  sudo docker compose -p olivos-${ACCOUNT} logs ${LOGIN_METHOD}"
-echo ""
-echo "  # 重启服务"
-echo "  sudo docker compose -p olivos-${ACCOUNT} restart"
-echo ""
-echo "  # 停止服务"
-echo "  sudo docker compose -p olivos-${ACCOUNT} down"
-echo ""
-echo "  # 更新服务"
-echo "  sudo docker compose -p olivos-${ACCOUNT} pull"
-echo "  sudo docker compose -p olivos-${ACCOUNT} up -d --force-recreate"
-echo ""
-echo "如需自定义端口，编辑 ${OLIVOS_BASE_DIR}/.env 文件后重启即可"
-echo ""
+echo "============================================================"
+echo "需要开放的端口:"
+echo "  MCSManager: 23333, 24444"
+for i in "${!QQ_ACCOUNTS[@]}"; do
+    WEBUI_PORT=$((6099 + i))
+    if [ "$LOGIN_METHOD" == "llbot" ]; then
+        echo "  OlivOS $((i+1)): $WEBUI_PORT (LLBot)"
+    else
+        echo "  OlivOS $((i+1)): $WEBUI_PORT (NapCat)"
+    fi
+done
+echo "注意: 云服务器必须在控制台安全组（防火墙）中开放上述端口"
+echo "推荐直接在安全组（防火墙）中添加规则，允许TCP协议的 6000-6200 端口"
 echo "============================================================"
 echo "⚡要饭链接：https://afdian.com/a/dicezone"
 echo "⭐项目地址：https://github.com/DiceZone/OlivOS-Docker"
