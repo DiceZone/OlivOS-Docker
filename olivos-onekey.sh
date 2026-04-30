@@ -472,7 +472,7 @@ EOF
 
     # 根据登录方式创建目录和配置
     if [ "$LOGIN_METHOD" == "napcat" ]; then
-        sudo mkdir -p "$OLIVOS_DIR/napcat/config" "$OLIVOS_DIR/napcat/QQ_DATA" "$OLIVOS_DIR/OlivOS"
+        sudo mkdir -p "$OLIVOS_DIR/napcat/config" "$OLIVOS_DIR/napcat/QQ_DATA" "$OLIVOS_DIR/OlivOS" "$OLIVOS_DIR/qrcode"
 
         # 为 NapCat 生成密码并创建 webui.json
         NAPCAT_PASSWORD=$(generate_password)
@@ -491,7 +491,7 @@ EOF
 EOF
         echo "NapCat WebUI 配置文件已生成"
     else
-        sudo mkdir -p "$OLIVOS_DIR/llbot/config" "$OLIVOS_DIR/llbot/QQ_DATA" "$OLIVOS_DIR/OlivOS"
+        sudo mkdir -p "$OLIVOS_DIR/llbot/config" "$OLIVOS_DIR/llbot/QQ_DATA" "$OLIVOS_DIR/OlivOS" "$OLIVOS_DIR/qrcode"
 
         # 生成 LLBot WebUI 密码（与对接 token "7777777" 无关）
         LLBOT_WEBUI_PASSWORD=$(generate_password)
@@ -638,6 +638,7 @@ services:
     volumes:
       - "\${PWD}/llbot/QQ_DATA:/root/.config/QQ"
       - "\${PWD}/llbot/config:/app/llbot/data:rw"
+      - "\${PWD}/qrcode:/app/llbot/data/temp"
     depends_on:
       - pmhq
 
@@ -672,6 +673,7 @@ services:
       - "\${PWD}/napcat/config:/app/napcat/config"
       - "\${PWD}/napcat/QQ_DATA:/app/.config/QQ"
       - "\${PWD}/OlivOS:/app/OlivOS"
+      - "\${PWD}/qrcode:/app/napcat/cache"
     environment:
       - ACCOUNT=${ACCOUNT}
       - MODE=olivos
